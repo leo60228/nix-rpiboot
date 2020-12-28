@@ -12,10 +12,10 @@
         crossSystem = nixpkgs.lib.systems.examples.muslpi // {
           isStatic = true;
         };
-        crossOverlays = [ (import "${nixpkgs}/pkgs/top-level/static.nix") ];
-        overlays = [ (import ./busybox-musl-overlay) ];
+        crossOverlays = [ (import "${nixpkgs}/pkgs/top-level/static.nix") (import ./busybox-musl-overlay) ];
       }).callPackage ./. {
         inherit (nixpkgs.legacyPackages.x86_64-linux) qemu;
+        #buildPackages = nixpkgs.legacyPackages.x86_64-linux;
       };
       arm-kernel = arm-image.kernel;
     };
