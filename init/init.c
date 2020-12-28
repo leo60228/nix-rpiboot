@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <sys/ioctl.h>
+#include <sys/signalfd.h>
 #include <netinet/ip.h>
 #include <net/if.h>
 #include <unistd.h>
@@ -24,6 +25,7 @@
 #include <spawn.h>
 #include <signal.h>
 #include <ifaddrs.h>
+#include <poll.h>
 
 #define P_TRY(msg, x) do { int res = (x); if (res != 0) { perror((msg)); fflush(stderr); sleep(1); return res; } } while (0)
 #define R_TRY(x) do { int res = (x); if (res != 0) { return res; } } while (0)
@@ -128,6 +130,21 @@ int dbgserver() {
 
     puts("listening on 0.0.0.0:8888");
 
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGCHLD);
+    P_TRY("sigprocmask", sigprocmask(SIG_BLOCK, &set, NULL));
+    int sigchld = signalfd(-1, &set, SFD_CLOEXEC);
+    if (sigchld == -1) {
+        perror("signalfd");
+        return 1;
+    }
+
+    struct pollfd pfd[2];
+    pfd[0].fd = sigchld;
+    pfd[0].events = POLLIN;
+    pfd[1].events = POLLIN | POLLHUP;
+
     struct sockaddr_in peer;
     int conn;
     char line[256];
@@ -139,50 +156,87 @@ int dbgserver() {
             perror("fdopen");
             continue;
         }
-        while (fgets(line, 256, stream) != NULL) {
-            if (strcmp(line, "stop\n") == 0) {
-                if (pid != 0) {
-                    if (kill(pid, SIGKILL) == -1 && errno != ESRCH) {
-                        perror("kill");
-                        return 1;
-                    }
-                }
-                pid = 0;
-            } else if (strcmp(line, "start\n") == 0) {
-                if (pid != 0) {
-                    if (kill(pid, SIGKILL) == -1 && errno != ESRCH) {
-                        perror("kill");
-                        return 1;
-                    }
-                }
-                pid = fork();
-                if (pid == 0) {
-                    P_TRY("prctl", prctl(PR_SET_PDEATHSIG, SIGKILL));
-                    P_TRY("dup2", dup2(fileno(stream), STDOUT_FILENO) == -1);
-                    P_TRY("dup2", dup2(fileno(stream), STDERR_FILENO) == -1);
-                    P_TRY("execvp", execvp(OPENOCD, (char* const[]){OPENOCD, "-f", OPENOCD_SCRIPT, NULL}));
-                }
-            } else if (strcmp(line, "wait\n") == 0) {
+
+        P_TRY("setvbuf", setvbuf(stream, NULL, _IOLBF, BUFSIZ));
+
+        pfd[1].fd = conn;
+
+        int flags = fcntl(conn, F_GETFL, 0);
+        if (flags == -1) {
+            perror("fcntl");
+            fclose(stream);
+            continue;
+        }
+        flags |= O_NONBLOCK;
+        if (fcntl(conn, F_SETFL, flags) == -1) {
+            perror("fcntl");
+            fclose(stream);
+            continue;
+        }
+
+        int res;
+        while ((res = poll(pfd, 2, -1)) != -1) {
+            if (pfd[0].revents & POLLIN) {
+                struct signalfd_siginfo si;
+                P_TRY("read", read(sigchld, &si, sizeof(si)) == -1);
+
                 int status;
                 do {
                     wait(&status);
                 } while (!WIFEXITED(status) && !WIFSIGNALED(status));
                 if (WIFEXITED(status)) {
-                    fprintf(stream, "%i\n", WEXITSTATUS(status));
+                    fprintf(stream, "$%i\n", WEXITSTATUS(status));
                 } else {
-                    fprintf(stream, "%i\n", 128 + WTERMSIG(status));
+                    fprintf(stream, "$%i\n", 128 + WTERMSIG(status));
                 }
                 pid = 0;
-            } else {
-                if (fputs("?\n", stream) == EOF) {
-                    perror("fputs");
-                    fclose(stream);
-                    continue;
+            }
+            if (pfd[1].revents & POLLHUP) {
+                break;
+            } else if (pfd[1].revents & POLLIN) {
+                if (fgets(line, 256, stream) == NULL) {
+                    if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                        continue;
+                    } else if (ferror(stream)) {
+                        perror("fgets");
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                if (strcmp(line, "stop\n") == 0) {
+                    if (pid != 0) {
+                        if (kill(pid, SIGKILL) == -1 && errno != ESRCH) {
+                            perror("kill");
+                            return 1;
+                        }
+                    }
+                    pid = 0;
+                } else if (strcmp(line, "start\n") == 0) {
+                    if (pid != 0) {
+                        if (kill(pid, SIGKILL) == -1 && errno != ESRCH) {
+                            perror("kill");
+                            return 1;
+                        }
+                    }
+                    pid = fork();
+                    if (pid == 0) {
+                        P_TRY("prctl", prctl(PR_SET_PDEATHSIG, SIGKILL));
+                        P_TRY("dup2", dup2(fileno(stream), STDOUT_FILENO) == -1);
+                        P_TRY("dup2", dup2(fileno(stream), STDERR_FILENO) == -1);
+                        P_TRY("execvp", execvp(OPENOCD, (char* const[]){OPENOCD, "-f", OPENOCD_SCRIPT, NULL}));
+                    }
+                } else {
+                    if (fputs("?\n", stream) == EOF) {
+                        perror("fputs");
+                        fclose(stream);
+                        continue;
+                    }
                 }
             }
         }
-        if (ferror(stream)) {
-            perror("fgets");
+        if (res == -1) {
+            perror("poll");
         }
         if (pid != 0) {
             if (kill(pid, SIGKILL) == -1 && errno != ESRCH) {
