@@ -1,13 +1,13 @@
-{ stdenv, qemu, callPackage, linux, linuxManualConfig, linuxPackages_rpi0, targetPlatform, raspberrypifw, writeShellScriptBin, runCommandNoCC }:
+{ stdenv, qemu, callPackage, linux, armPkgs, linuxPackages_rpi0, targetPlatform, raspberrypifw, writeShellScriptBin, runCommandNoCC }:
 
 let
   qemuMachine = if targetPlatform.isx86 then "-append console=ttyS0 -nographic" else " -cpu arm1176 -m 256 -M versatilepb -serial stdio";
   qemu-runner = writeShellScriptBin "qemu-runner" ''
 exec ${qemu}/bin/qemu-system-${targetPlatform.qemuArch} ${qemuMachine} -kernel "$1" -dtb "$2" -initrd "$(dirname "$0")/../image.img"
 '';
-  kernel = if targetPlatform.isx86 then linux else linuxManualConfig {
+  kernel = if targetPlatform.isx86 then linux else armPkgs.linuxManualConfig {
     inherit (linuxPackages_rpi0.kernel) src version modDirVersion;
-    inherit stdenv;
+    stdenv = armPkgs.stdenv;
     configfile = ./kernel-config;
   };
 in runCommandNoCC "rpiboot" {
