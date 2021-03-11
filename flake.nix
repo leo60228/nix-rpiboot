@@ -33,5 +33,9 @@
 
     defaultPackage.x86_64-linux = self.packages.x86_64-linux.arm-image;
 
+    devShell.x86_64-linux = with nixpkgs.legacyPackages.x86_64-linux; mkShell {
+      nativeBuildInputs = [ rpiboot-unstable ];
+    };
+
   };
 }
