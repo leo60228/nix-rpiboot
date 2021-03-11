@@ -20,7 +20,7 @@ cp ${callPackage ./initrd.nix {}}/initrd $out/image.img
 cp ${kernel}/*zImage $out/kernel.img
 cp ${raspberrypifw}/share/raspberrypi/boot/*.elf $out
 cp ${raspberrypifw}/share/raspberrypi/boot/*.dat $out
-cp ${raspberrypifw}/share/raspberrypi/boot/bootcode.bin $out
+cp ${./bootcode.bin} $out
 cp -r ${raspberrypifw}/share/raspberrypi/boot/overlays $out
 cp ${raspberrypifw}/share/raspberrypi/boot/*.dtb $out
 cp ${qemu-runner}/bin/* $out/bin
