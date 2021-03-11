@@ -1,19 +1,20 @@
 { stdenv
 , lib
-, fetchgit
+, fetchFromGitHub
 , autoreconfHook
 , pkg-config
 , tcl
 }:
 
 stdenv.mkDerivation rec {
-  pname = "openocd";
-  version = "unstable-2020-11-11";
+  pname = "openocd-rp2040";
+  version = "2021-02-03";
 
-  src = fetchgit {
-    url = "https://git.code.sf.net/p/openocd/code";
-    rev = "06c7a53f1fff20bcc4be9e63f83ae98664777f34";
-    sha256 = "0g0w7g94r88ylfpwswnhh8czlf5iqvd991ssn4gfcfd725lpdb01";
+  src = fetchFromGitHub {
+    owner = "raspberrypi";
+    repo = "openocd";
+    rev = "f8e14ec97b0d98c8e2ffdd08ab5ff9537f1c9a63";
+    sha256 = "cyTzS2DwUjjJqmjTrIsj41+eUKmcP2ztxp76KHoGwd4=";
     fetchSubmodules = true;
   };
 
